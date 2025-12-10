@@ -1,0 +1,27 @@
+{
+  "name": "the37thmover_website",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"node server.js\" \"vite\"",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^7.2.4"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
+    "@google/generative-ai": "^0.24.1",
+    "@wix/data": "^1.0.355",
+    "@wix/media": "^1.0.220",
+    "@wix/sdk": "^1.17.5",
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.5",
+    "cropperjs": "^1.6.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "multer": "^2.0.2"
+  }
+}
