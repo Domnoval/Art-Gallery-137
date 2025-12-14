@@ -2,15 +2,76 @@ import './style.css';
 import Cropper from 'cropperjs';
 import 'cropperjs/dist/cropper.css';
 
+// ===========================================
+// Configuration
+// ===========================================
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+
+// ===========================================
 // State
+// ===========================================
 let images = [];
 let activeImageId = null;
 let cropper = null;
 
-// DOM Elements
+// ===========================================
+// Toast Notification System
+// ===========================================
+function showToast(message, type = 'info') {
+  // Remove existing toasts
+  const existingToast = document.querySelector('.toast');
+  if (existingToast) existingToast.remove();
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `
+    <span>${message}</span>
+    <button onclick="this.parentElement.remove()">×</button>
+  `;
+  document.body.appendChild(toast);
+
+  // Auto-remove after 5 seconds
+  setTimeout(() => toast.remove(), 5000);
+}
+
+// ===========================================
+// API Helper with Error Handling
+// ===========================================
+async function apiRequest(endpoint, options = {}) {
+  try {
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || `Request failed with status ${response.status}`);
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    // Handle different error types
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      return {
+        success: false,
+        error: 'Cannot connect to server. Make sure the backend is running.'
+      };
+    }
+
+    return {
+      success: false,
+      error: error.message || 'An unexpected error occurred'
+    };
+  }
+}
+
+// ===========================================
+// DOM Setup
+// ===========================================
 const app = document.querySelector('#app');
 
-// Initial Layout
 app.innerHTML = `
   <header>
     <div style="display: flex; align-items: center; gap: 1rem;">
@@ -64,15 +125,14 @@ app.innerHTML = `
 
         <div class="form-group">
           <label>Title</label>
-          <input type="text" id="editTitle" placeholder="Artwork Title">
+          <input type="text" id="editTitle" placeholder="Artwork Title" maxlength="200">
           <button class="ai-pill" id="aiTitleBtn">✨ Generate Title</button>
         </div>
 
-        <!-- New Core Fields -->
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
              <div class="form-group">
                 <label>Price ($)</label>
-                <input type="number" id="editPrice" placeholder="500">
+                <input type="number" id="editPrice" placeholder="500" min="0" step="0.01">
              </div>
              <div class="form-group">
                 <label>Status</label>
@@ -88,20 +148,21 @@ app.innerHTML = `
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
              <div class="form-group">
                 <label>Dimensions</label>
-                <input type="text" id="editDimensions" placeholder="12 x 16 in">
+                <input type="text" id="editDimensions" placeholder="12 x 16 in" maxlength="50">
              </div>
              <div class="form-group">
                 <label>Medium</label>
-                <input type="text" id="editMedium" placeholder="Oil on Canvas">
+                <input type="text" id="editMedium" placeholder="Oil on Canvas" maxlength="100">
              </div>
         </div>
 
         <div class="form-group">
           <label>Story / Description</label>
-          <textarea id="editStory" placeholder="Tell the story behind this piece..."></textarea>
+          <textarea id="editStory" placeholder="Tell the story behind this piece..." maxlength="5000"></textarea>
           <button class="ai-pill" id="aiStoryBtn">📝 Enhance Story</button>
+          <button class="ai-pill" style="background: rgba(255, 0, 255, 0.1); border-color: #f0f;" id="aiCritiqueBtn">🔍 Artistic Critique</button>
         </div>
-        
+
         <div class="form-group">
             <label>SEO Tags & Mood</label>
             <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;" id="tagsContainer">
@@ -120,7 +181,9 @@ app.innerHTML = `
   </div>
 `;
 
-// Event Listeners
+// ===========================================
+// DOM References
+// ===========================================
 const uploadZone = document.getElementById('uploadZone');
 const fileInput = document.getElementById('fileInput');
 const gallery = document.getElementById('gallery');
@@ -128,7 +191,9 @@ const modalOverlay = document.getElementById('modalOverlay');
 const closeModalBtn = document.getElementById('closeModal');
 const editorImage = document.getElementById('editorImage');
 
-// Upload Logic
+// ===========================================
+// File Upload Handlers
+// ===========================================
 uploadZone.addEventListener('click', () => fileInput.click());
 
 uploadZone.addEventListener('dragover', (e) => {
@@ -151,7 +216,22 @@ fileInput.addEventListener('change', (e) => {
 });
 
 function handleFiles(files) {
+  const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+  const maxSize = 40 * 1024 * 1024; // 40MB
+
   Array.from(files).forEach(file => {
+    // Validate file type
+    if (!validTypes.includes(file.type)) {
+      showToast(`Invalid file type: ${file.name}. Use PNG, JPEG, GIF, or WebP.`, 'error');
+      return;
+    }
+
+    // Validate file size
+    if (file.size > maxSize) {
+      showToast(`File too large: ${file.name}. Maximum size is 40MB.`, 'error');
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (e) => {
       const newImage = {
@@ -167,23 +247,30 @@ function handleFiles(files) {
       };
       images.push(newImage);
       renderGallery();
+      showToast(`Added: ${newImage.title}`, 'success');
+    };
+    reader.onerror = () => {
+      showToast(`Failed to read file: ${file.name}`, 'error');
     };
     reader.readAsDataURL(file);
   });
 }
 
+// ===========================================
+// Gallery Rendering
+// ===========================================
 function renderGallery() {
   gallery.innerHTML = images.map(img => `
     <div class="card" onclick="openEditor(${img.id})">
       <div class="card-image-container">
-        <img src="${img.src}" alt="${img.title}">
+        <img src="${img.src}" alt="${escapeHtml(img.title)}">
       </div>
       <div class="card-content">
-        <h3 class="card-title">${img.title}</h3>
+        <h3 class="card-title">${escapeHtml(img.title)}</h3>
         <p class="card-desc" style="color: var(--color-accent-orange); font-weight: bold;">
              ${img.status === 'Available' && img.price ? '$' + img.price : img.status}
         </p>
-        <p class="card-desc">${img.description || 'No description yet...'}</p>
+        <p class="card-desc">${escapeHtml(img.description) || 'No description yet...'}</p>
         <div class="card-actions">
            <span class="chip" style="font-size: 0.7rem;">Edit</span>
            <span class="chip" style="font-size: 0.7rem;">SEO Ready</span>
@@ -193,7 +280,17 @@ function renderGallery() {
   `).join('');
 }
 
-// Global scope specific for inline onclick handlers (cleaner would be event delegation)
+// Helper to escape HTML and prevent XSS
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ===========================================
+// Editor Modal
+// ===========================================
 window.openEditor = (id) => {
   activeImageId = id;
   const img = images.find(i => i.id === id);
@@ -202,15 +299,12 @@ window.openEditor = (id) => {
   editorImage.src = img.src;
   document.getElementById('editTitle').value = img.title;
   document.getElementById('editStory').value = img.description;
-
-  // New Fields
   document.getElementById('editPrice').value = img.price || '';
   document.getElementById('editDimensions').value = img.dimensions || '';
   document.getElementById('editMedium').value = img.medium || '';
   document.getElementById('editStatus').value = img.status || 'Available';
 
   renderTags(img.tags);
-
   modalOverlay.classList.add('active');
 
   // Init Cropper
@@ -239,51 +333,85 @@ function closeEditor() {
 
 closeModalBtn.addEventListener('click', closeEditor);
 
-// Backend API URL
-const API_URL = 'http://localhost:3000/api';
+// Close on escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && modalOverlay.classList.contains('active')) {
+    closeEditor();
+  }
+});
 
-// --- AI Integration ---
+// ===========================================
+// AI Generation
+// ===========================================
 async function generateAI(type) {
-  const titleVal = document.getElementById('editTitle').value;
-  const storyVal = document.getElementById('editStory').value;
+  const buttonMap = {
+    title: 'aiTitleBtn',
+    story: 'aiStoryBtn',
+    critique: 'aiCritiqueBtn',
+    tags: 'aiTagsBtn'
+  };
 
-  // UI Loading State
-  const btn = document.getElementById(type === 'title' ? 'aiTitleBtn' : (type === 'story' ? 'aiStoryBtn' : 'aiTagsBtn'));
+  const btn = document.getElementById(buttonMap[type]);
+  if (!btn || btn.disabled) return;
+
   const originalText = btn.innerHTML;
-  btn.innerHTML = '👁️ Vision Analysis...';
+  btn.innerHTML = '👁️ Analyzing...';
   btn.disabled = true;
 
   try {
-    // Get current image from Cropper (or raw source if cropper not ready)
+    // Get current image
     let imageBase64 = editorImage.src;
     if (cropper) {
       imageBase64 = cropper.getCroppedCanvas().toDataURL('image/png');
     }
 
-    const res = await fetch(`${API_URL}/ai/generate`, {
+    const storyVal = document.getElementById('editStory').value;
+
+    const result = await apiRequest('/ai/generate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type,
-        context: storyVal, // Optional text context 
-        image: imageBase64   // Send the actual image!
+        context: storyVal,
+        image: imageBase64
       })
     });
-    const data = await res.json();
 
-    if (type === 'title') document.getElementById('editTitle').value = data.result.replace(/"/g, '');
-    if (type === 'story') document.getElementById('editStory').value = data.result;
-    if (type === 'tags') {
-      // Parse space separated tags
+    if (!result.success) {
+      showToast(result.error, 'error');
+      return;
+    }
+
+    const { data } = result;
+
+    if (type === 'title' && data.result) {
+      // Take first title from list
+      const firstTitle = data.result.replace(/"/g, '').split('\n')[0];
+      document.getElementById('editTitle').value = firstTitle;
+      showToast('Title generated!', 'success');
+    }
+
+    if (type === 'story' && data.result) {
+      document.getElementById('editStory').value = data.result;
+      showToast('Story enhanced!', 'success');
+    }
+
+    if (type === 'critique' && data.result) {
+      const storyBox = document.getElementById('editStory');
+      storyBox.value = storyBox.value + "\n\n--- CRITIQUE ---\n" + data.result;
+      showToast('Critique added!', 'success');
+    }
+
+    if (type === 'tags' && data.result) {
       const tags = data.result.split(' ').filter(t => t.startsWith('#'));
       const currentImage = images.find(i => i.id === activeImageId);
       if (currentImage) currentImage.tags = tags;
       renderTags(tags);
+      showToast(`Generated ${tags.length} tags!`, 'success');
     }
 
   } catch (e) {
-    alert("AI Offline: Check server logs");
-    console.error(e);
+    showToast('AI generation failed. Check console for details.', 'error');
+    console.error('AI Error:', e);
   } finally {
     btn.innerHTML = originalText;
     btn.disabled = false;
@@ -292,90 +420,143 @@ async function generateAI(type) {
 
 document.getElementById('aiTitleBtn').addEventListener('click', () => generateAI('title'));
 document.getElementById('aiStoryBtn').addEventListener('click', () => generateAI('story'));
+document.getElementById('aiCritiqueBtn').addEventListener('click', () => generateAI('critique'));
 document.getElementById('aiTagsBtn').addEventListener('click', () => generateAI('tags'));
 
 function renderTags(tags) {
   const container = document.getElementById('tagsContainer');
-  container.innerHTML = tags.map(t => `<span class="chip">${t}</span>`).join('');
+  container.innerHTML = tags.map(t => `<span class="chip">${escapeHtml(t)}</span>`).join('');
 }
 
-// --- Save & Wix Logic ---
+// ===========================================
+// Save to Local Drive
+// ===========================================
 document.getElementById('saveBtn').addEventListener('click', async () => {
   const btn = document.getElementById('saveBtn');
+  const originalText = btn.innerHTML;
   btn.innerHTML = "Saving...";
+  btn.disabled = true;
 
   const imgIndex = images.findIndex(i => i.id === activeImageId);
-  if (imgIndex > -1) {
-    const img = images[imgIndex];
-    // Gather all data
-    img.title = document.getElementById('editTitle').value;
-    img.description = document.getElementById('editStory').value;
-    img.price = document.getElementById('editPrice').value;
-    img.dimensions = document.getElementById('editDimensions').value;
-    img.medium = document.getElementById('editMedium').value;
-    img.status = document.getElementById('editStatus').value;
-
-    // Apply Crop if active
-    let finalImageSrc = img.src;
-    if (cropper) {
-      finalImageSrc = cropper.getCroppedCanvas().toDataURL('image/png');
-      img.src = finalImageSrc;
-      editorImage.src = finalImageSrc;
-      cropper.replace(finalImageSrc);
-    }
-
-    try {
-      const res = await fetch(`${API_URL}/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...img, // Send all fields
-          imageBase64: finalImageSrc
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        alert(`Saved locally to: ${data.path}`);
-      }
-    } catch (e) {
-      alert('Failed to save to disk.');
-    }
+  if (imgIndex === -1) {
+    showToast('No image selected', 'error');
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+    return;
   }
-  btn.innerHTML = "Save Changes";
+
+  const img = images[imgIndex];
+
+  // Gather form data
+  img.title = document.getElementById('editTitle').value.trim() || 'Untitled';
+  img.description = document.getElementById('editStory').value;
+  img.price = document.getElementById('editPrice').value;
+  img.dimensions = document.getElementById('editDimensions').value;
+  img.medium = document.getElementById('editMedium').value;
+  img.status = document.getElementById('editStatus').value;
+
+  // Apply crop if active
+  let finalImageSrc = img.src;
+  if (cropper) {
+    finalImageSrc = cropper.getCroppedCanvas().toDataURL('image/png');
+    img.src = finalImageSrc;
+    editorImage.src = finalImageSrc;
+    cropper.replace(finalImageSrc);
+  }
+
+  const result = await apiRequest('/save', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...img,
+      imageBase64: finalImageSrc
+    })
+  });
+
+  if (result.success) {
+    showToast(`Saved: ${img.title}`, 'success');
+    renderGallery();
+  } else {
+    showToast(result.error, 'error');
+  }
+
+  btn.innerHTML = originalText;
+  btn.disabled = false;
+});
+
+// ===========================================
+// Wix Upload
+// ===========================================
+document.getElementById('wixBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('wixBtn');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = "Uploading...";
+  btn.disabled = true;
+
+  const imgIndex = images.findIndex(i => i.id === activeImageId);
+  if (imgIndex === -1) {
+    showToast('No image selected', 'error');
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+    return;
+  }
+
+  const img = images[imgIndex];
+
+  const result = await apiRequest('/wix/upload', {
+    method: 'POST',
+    body: JSON.stringify({
+      id: img.id,
+      title: document.getElementById('editTitle').value,
+      description: document.getElementById('editStory').value,
+      tags: img.tags,
+      price: document.getElementById('editPrice').value,
+      dimensions: document.getElementById('editDimensions').value,
+      medium: document.getElementById('editMedium').value,
+      status: document.getElementById('editStatus').value
+    })
+  });
+
+  if (result.success) {
+    showToast(result.data.message || 'Uploaded to Wix!', 'success');
+  } else {
+    showToast(result.error, 'error');
+  }
+
+  btn.innerHTML = originalText;
+  btn.disabled = false;
+});
+
+// ===========================================
+// Crop Button
+// ===========================================
+document.getElementById('cropBtn').addEventListener('click', () => {
+  if (!cropper) {
+    showToast('Cropper not initialized', 'error');
+    return;
+  }
+
+  const imgIndex = images.findIndex(i => i.id === activeImageId);
+  if (imgIndex === -1) return;
+
+  const croppedCanvas = cropper.getCroppedCanvas();
+  const croppedSrc = croppedCanvas.toDataURL('image/png');
+
+  images[imgIndex].src = croppedSrc;
+  editorImage.src = croppedSrc;
+  cropper.replace(croppedSrc);
+
+  showToast('Image cropped!', 'success');
   renderGallery();
 });
 
-document.getElementById('wixBtn').addEventListener('click', async () => {
-  const btn = document.getElementById('wixBtn');
-  btn.innerHTML = "Uploading...";
-
-  const imgIndex = images.findIndex(i => i.id === activeImageId);
-  if (imgIndex === -1) return; // Corrected condition
-  const img = images[imgIndex];
-
-  try {
-    const res = await fetch(`${API_URL}/wix/upload`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: img.id,
-        title: document.getElementById('editTitle').value,
-        description: document.getElementById('editStory').value,
-        tags: img.tags,
-        price: document.getElementById('editPrice').value,
-        dimensions: document.getElementById('editDimensions').value,
-        medium: document.getElementById('editMedium').value,
-        status: document.getElementById('editStatus').value
-      })
-    });
-    const data = await res.json();
-    if (data.success) {
-      alert(data.message);
-    } else {
-      alert(data.error);
-    }
-  } catch (e) {
-    alert("Wix Upload Failed");
+// ===========================================
+// Initialize - Check server health
+// ===========================================
+(async function checkHealth() {
+  const result = await apiRequest('/health');
+  if (result.success) {
+    console.log('Server connected:', result.data);
+  } else {
+    showToast('Server not reachable. Start the backend first.', 'error');
   }
-  btn.innerHTML = "Upload to Wix";
-});
+})();

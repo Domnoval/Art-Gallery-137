@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)",
+      "Bash(cmd //c \"taskkill /PID 32184 /F\")",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(cmd //c \"taskkill /PID 36308 /F && taskkill /PID 39888 /F && taskkill /PID 44300 /F && taskkill /PID 43952 /F\")",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

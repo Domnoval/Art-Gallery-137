@@ -1,0 +1,18 @@
+{
+    "name": "universal-api-vault",
+    "version": "1.0.0",
+    "description": "Local secure proxy for AI API keys",
+    "main": "server.js",
+    "type": "module",
+    "scripts": {
+        "start": "node server.js",
+        "vault": "node cli.js"
+    },
+    "dependencies": {
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2",
+        "http-proxy-middleware": "^3.0.0",
+        "picocolors": "^1.0.0"
+    }
+}
