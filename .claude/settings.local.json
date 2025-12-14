@@ -8,7 +8,10 @@
       "Bash(netstat:*)",
       "Bash(findstr:*)",
       "Bash(cmd //c \"taskkill /PID 36308 /F && taskkill /PID 39888 /F && taskkill /PID 44300 /F && taskkill /PID 43952 /F\")",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(npm run full:*)"
     ],
     "deny": [],
     "ask": []
